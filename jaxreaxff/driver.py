@@ -174,12 +174,12 @@ def main():
     # preprocess params
     param_indices=[]
     for par in params_list:
-        param_indices.append(par[0])
+        param_indices.append(par[0])  # index
     param_indices = tuple(param_indices)
 
     bounds = []
     for p in params_list:
-        bounds.append((p[2],p[3]))
+        bounds.append((p[2],p[3]))  # low_end, high_end
     bounds = onp.array(bounds)
     # print INFO
     print("[INFO] Parameter file is read, there are {} parameters to be optimized!".format(len(param_indices)))
@@ -282,14 +282,6 @@ def main():
     energy_minim_loss_and_grad_function = my_jit(jax.vmap(jax.value_and_grad(calculate_total_energy_for_minim),
                                                            in_axes=(0,None,None,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)),
                                                  backend=DEVICE_NAME)
-
-    def new_grad(*x):
-        grads = grad_func(*x)
-        return grads
-
-    def new_loss_and_grad(*x):
-        val,grads = loss_and_grad(*x)
-        return val, grads
 
     # copy the original atom positions
     orig_list_all_pos = copy.deepcopy(list_all_pos)

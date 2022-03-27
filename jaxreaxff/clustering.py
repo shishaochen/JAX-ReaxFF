@@ -86,14 +86,28 @@ def assign_labels(X, centroids):
     return labels,counts,centroids
 
 def modified_kmeans(systems,k=3,max_iterations=100, rep_count=10, print_mode=True):
+    '''Cluster systems into `num_cuts` pieces.
 
+    Args:
+    - systems: List of structures.
+    - k: Cluster count.
+    - max_iterations: Iteration count in K-Means.
+    - rep_count: Replay count of K-Means.
+    - print_mode: Whether print statistics.
+
+    Returns:
+    - min_labels: Cluster assigned of each cluster.
+    - min_centr: Centroid of each cluster.
+    - min_counts: System count of each cluster.
+    - min_cost: Minimal calculation cost.
+    '''
     all_lists = []
     for s in systems:
         #2-body, 3-body, 4-body, hbond count, image count, atom count
         my_list = [s.global_body_2_count,s.global_body_3_count,s.global_body_4_count, s.global_hbond_count, len(s.all_shift_comb),(s.real_atom_count)]
         all_lists.append(my_list)
 
-    X = onp.array(all_lists)
+    X = onp.array(all_lists)  # shape=[num_system,6]
 
     '''
     X: multidimensional data
@@ -148,6 +162,7 @@ def modified_kmeans(systems,k=3,max_iterations=100, rep_count=10, print_mode=Tru
         print("bounded:              ", min_part1)
 
     return min_labels,min_centr,min_counts,min_cost
+
 def calc_cost(X, labels, k):
     counts = onp.zeros(k)
     max_centers = onp.zeros(shape=(k,len(X[0])))

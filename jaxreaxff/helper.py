@@ -24,6 +24,8 @@ from multiprocessing import Pool
 from jaxreaxff.clustering import modified_kmeans
 from tabulate import tabulate
 
+from typing import List, Tuple
+
 # default device is gpu
 DEVICE_NAME = 'gpu'
 
@@ -144,7 +146,7 @@ def calculate_bo_single(distance,
                 rob1, rob2, rob3,
                 ptp, pdp, popi, pdo, bop1, bop2,
                 cutoff):
-    '''
+    '''Return uncorrected bond order from bonds of sigma, pi and double pi.
     to get the highest bor:
         rob1:
         bop2: group 2, line 2, col. 6
@@ -158,33 +160,36 @@ def calculate_bo_single(distance,
         popi: group 2, line 1, col. 7
         pdo: group 2, line 1, col. 5
     '''
-
+    # BO^{\prime\sigma}_{ij}
     rhulp = np.where(rob1 <= 0, 0, distance / rob1)
     rh2 = rhulp ** bop2
     ehulp = (1 + cutoff) * np.exp(bop1 * rh2)
     ehulp = np.where(rob1 <= 0, 0.0, ehulp)
 
+    # BO^{\prime\pi}_{ij}
     rhulp2 = np.where(rob2 == 0, 0, distance / rob2)
     rh2p = rhulp2 ** ptp
     ehulpp = np.exp(pdp * rh2p)
     ehulpp = np.where(rob2 <= 0, 0.0, ehulpp)
 
-
+    # BO^{\prime\pi\pi}_{ij}
     rhulp3 = np.where(rob3 == 0, 0, distance / rob3)
     rh2pp = rhulp3 ** popi
     ehulppp = np.exp(pdo*rh2pp)
     ehulppp = np.where(rob3 <= 0, 0.0, ehulppp)
 
-    #print(ehulp , ehulpp , ehulppp)
+    # BO^{\prime}_{ij}
     bor = ehulp + ehulpp + ehulppp
-
-
     return bor # if < cutoff, will be ignored
 
 def set_flattened_force_field(flattened_force_field,param_indices, bounds):
+    '''Copy force field with updated bond order parameters:
+    - Set bond length and coefficient to max value.
+    - Set exponetial to min value.
+    '''
     copy_ff = copy.deepcopy(flattened_force_field)
-    bond_param_indices_max = set([8,15,9,12,10,14,75,76,77,81,82,83]) #rob 75,76,77 rob_off 81 82 83
-    bond_param_indices_min = set([16,11,13])
+    bond_param_indices_max = set([8,15,9,12,10,14,75,76,77,81,82,83])  # rob1, bop1, rob2, pdp, rob3, pdo, rat, rapt, vnq, rob1_off, rob2_off, rob3_off
+    bond_param_indices_min = set([16,11,13])  # bop2, ptp, popi
     for i,p in enumerate(param_indices):
         bound = bounds[i]
         if p[0] in bond_param_indices_max:
@@ -194,6 +199,8 @@ def set_flattened_force_field(flattened_force_field,param_indices, bounds):
     return copy_ff
 
 def find_limits(type1, type2, flattened_force_field, cutoff):
+    '''Return distance where bond order is weak than cutoff.
+    '''
     vect_bo_function = jax.jit(jax.vmap(calculate_bo_single,in_axes=(0,None,None,None,None,None,None,None,None,None,None)),backend='cpu')
     rob1 = flattened_force_field[8][type1,type2] # select max, typical values (0.1, 2)
     bop2 = flattened_force_field[16][type1,type2] # select min, typical values (1,10) (negative doesnt make sense)
@@ -207,18 +214,19 @@ def find_limits(type1, type2, flattened_force_field, cutoff):
     popi = flattened_force_field[13][type1,type2]
     pdo = flattened_force_field[14][type1,type2]
 
-    distance = np.linspace(0.0, 10, 1000)
+    distance = np.linspace(0.0, 10, 1000)  # 1000 points with distance 10/999
 
     res = vect_bo_function(distance,
                     rob1, rob2, rob3,
                     ptp, pdp, popi, pdo, bop1, bop2,
-                    cutoff)
+                    cutoff)  # Bond orders at each atom-pair distance
 
-    ind = np.sum(res > cutoff)
-
+    ind = np.sum(res > cutoff)  # Since bond order decreases while distance increases, the sum tells the index where `bond_order<=cutoff`.
     return distance[ind]
-# return a matrix where (i,j) is the cutoff dist. for a bond between type i and type j
+
 def find_all_cutoffs(flattened_force_field,flattened_non_dif_params,cutoff,atom_indices):
+    '''Return a dict where value of key (i,j) is the cutoff distance for a bond between type i and type j.
+    '''
     lenn = len(atom_indices)
     cutoff_dict = dict()
     flattened_force_field = preprocess_force_field(flattened_force_field, flattened_non_dif_params)
@@ -236,15 +244,13 @@ def find_all_cutoffs(flattened_force_field,flattened_non_dif_params,cutoff,atom_
                 cutoff_dict[(type_j,type_i)] = CLOSE_NEIGH_CUTOFF
     return cutoff_dict
 
-def process_and_cluster_geos(systems,force_field,param_indices,bounds,max_num_clusters=10,all_cut_indices=None, num_threads=1, list_prev_max_dict=None):
-    start = time.time()
-    saved_all_pots = []
-    saved_all_total_pots = []
-    h_pot = []
-    all_atom_types = set()
-    start = time.time()
-    all_time_data = onp.zeros((len(systems),6))
-    for i,s in enumerate(systems):
+def process_and_cluster_geos(systems: List[Structure],
+                             force_field: ForceField,
+                             param_indices: Tuple,
+                             bounds: onp.ndarray,
+                             max_num_clusters=10, all_cut_indices=None, num_threads=1, list_prev_max_dict=None):
+    all_atom_types = set()  # All used element IDs
+    for s in systems:
         s.fill_atom_types(force_field)
         for a_type in s.atom_types:
             all_atom_types.add(a_type)
@@ -255,13 +261,11 @@ def process_and_cluster_geos(systems,force_field,param_indices,bounds,max_num_cl
     copy_ff = set_flattened_force_field(force_field.flattened_force_field,param_indices, bounds)
     copy_ff = preprocess_force_field(copy_ff, force_field.non_dif_params)
 
-    end = time.time()
     pool = Pool(num_threads)
     start = time.time()
     pool_handler_for_inter_list_generation(systems,copy_ff,force_field,pool)
     end = time.time()
     pool.terminate()
-
     print("Multithreaded interaction list generation took {:.2f} secs with {} threads".format(end-start,num_threads))
 
     if all_cut_indices == None:
@@ -363,7 +367,18 @@ def process_and_cluster_geos(systems,force_field,param_indices,bounds,max_num_cl
                              list_all_body_4_angles,
                              list_all_angles_and_dist])
 
-def pool_handler_for_inter_list_generation(systems,flattened_force_field,force_field,pool):
+def pool_handler_for_inter_list_generation(systems: List[Structure],
+                                           flattened_force_field: List[np.ndarray],
+                                           force_field: ForceField,
+                                           pool: Pool):
+    '''Generate inter list of bond, valence, torsion and hbond for training systems in parallel.
+
+    Args:
+    - systems: List of structures for training.
+    - flattened_force_field: Flattened parameters of force field with altered min/max values.
+    - force_field: Loaded `ForceField`.
+    - pool: Process pool.
+    '''
     # prepare input
     all_flat_systems = [s.flatten_no_inter_list() for s in systems]
 
@@ -372,27 +387,35 @@ def pool_handler_for_inter_list_generation(systems,flattened_force_field,force_f
 
     for i,s in enumerate(systems):
         s.distance_matrices = all_inter_lists[i][0]
-
-        [s.local_body_2_neigh_list,s.local_body_2_neigh_counts] = all_inter_lists[i][1]
-
-        [s.global_body_2_inter_list,s.global_body_2_inter_list_mask,
-        s.triple_bond_body_2_mask,s.global_body_2_distances,
-        s.global_body_2_count] = all_inter_lists[i][2]
-
-        [s.global_body_3_inter_list,
-         s.global_body_3_inter_list_mask,
-         s.global_body_3_inter_shift_map,
-         s.global_body_3_count] = all_inter_lists[i][3]
-
-        [s.global_body_4_inter_list,
-         s.global_body_4_inter_shift,
-         s.global_body_4_inter_list_mask,
-         s.global_body_4_count]= all_inter_lists[i][4]
-
-        [s.global_hbond_inter_list,
-         s.global_hbond_shift_list,
-         s.global_hbond_inter_list_mask,
-         s.global_hbond_count] = all_inter_lists[i][5]
+        [
+            s.local_body_2_neigh_list,
+            s.local_body_2_neigh_counts
+        ] = all_inter_lists[i][1]
+        [
+            s.global_body_2_inter_list,
+            s.global_body_2_inter_list_mask,
+            s.triple_bond_body_2_mask,
+            s.global_body_2_distances,
+            s.global_body_2_count
+        ] = all_inter_lists[i][2]
+        [
+            s.global_body_3_inter_list,
+            s.global_body_3_inter_list_mask,
+            s.global_body_3_inter_shift_map,
+            s.global_body_3_count
+        ] = all_inter_lists[i][3]
+        [
+            s.global_body_4_inter_list,
+            s.global_body_4_inter_shift,
+            s.global_body_4_inter_list_mask,
+            s.global_body_4_count
+        ]= all_inter_lists[i][4]
+        [
+            s.global_hbond_inter_list,
+            s.global_hbond_shift_list,
+            s.global_hbond_inter_list_mask,
+            s.global_hbond_count
+        ] = all_inter_lists[i][5]
 
 # can be usedfor multi processing
 def create_inter_lists(is_periodic,
@@ -406,14 +429,48 @@ def create_inter_lists(is_periodic,
                     all_shift_comb,
                     flattened_force_field,
                     force_field):
+    '''Generate inter list for the given structure.
+
+    Args:
+    - is_periodic: Periodic condition boundary or not.
+    - do_minimization: Whether need minimization.
+    - num_atoms: Total element count.
+    - real_atom_count: Used element count.
+    - atom_types Element IDs of each atom.
+    - atom_names: Element names of each atom.
+    - atom_positions: Catesian coordinates per atom.
+    - orth_matrix: Axis vectors of X, Y, Z in Catesian coordinates.
+    - all_shift_comb: Grids except the center at (0,0,0).
+    - flattened_force_field: Flattened parameters of force field with altered min/max values.
+    - force_field: Loaded `ForceField`.
+
+    Returns:
+    - generated: A list containing:
+      - distance_matrices: Shape is [num_grids, num_atoms, num_atoms, 3].
+      - local_neigh_arrays: A list of 2 elements.
+        1. Neighbor list of each atom.
+        2. Neighbor count of each atom.
+      - body_2_arrays: A list of 5 elements.
+        1. global_body_2_inter_list: Shape is [num_bonds+1, 7]. The last element is splitter.
+        2. global_body_2_inter_list_mask: Shape is [num_bonds+1]. The last element is splitter. All elements are 1.
+        3. triple_bond_body_2_mask: Shape is [num_bonds+1]. The last element is splitter. It tells whether the bond is C-O.
+        4. global_body_2_distances: Shape is [num_bonds+1]. The last element is splitter.
+        5. global_body_2_count: Value is `num_bounds+1`.
+      - body_3_arrays: A list of 4 elements.
+        1. global_body_3_inter_list: Shape is [num_valence+1,5]. The last element is splitter. Values of the secend dimension are:
+        2. global_body_3_inter_list_mask: Shape is [num_valence+1]. The last element is splitter. All elements are 1.
+        3. global_body_3_inter_shift_map: Shape is [num_valence+1,2]. The last element is splitter.
+        4. global_body_3_count: Value is `num_valence+1`.
+      - body_4_arrays
+      - body_h_arrays
+    '''
 
     #start = time.time()
     distance_matrices = Structure.create_distance_matrices_onp(atom_positions,orth_matrix, all_shift_comb)
     #end = time.time()
     #print("distance_matrices", end-start)
     #start = time.time()
-    local_neigh_arrays = [local_body_2_neigh_list,
-                        local_body_2_neigh_counts] = Structure.create_local_neigh_list(num_atoms,
+    local_neigh_arrays = [local_body_2_neigh_list, local_body_2_neigh_counts] = Structure.create_local_neigh_list(num_atoms,
                                                         real_atom_count,
                                                         atom_types,
                                                         distance_matrices,
@@ -423,25 +480,30 @@ def create_inter_lists(is_periodic,
     #end = time.time()
     #print("local_neigh_arrays", end-start)
     #start = time.time()
-    body_2_arrays = [global_body_2_inter_list,global_body_2_inter_list_mask,
-    triple_bond_body_2_mask,global_body_2_distances,
-    global_body_2_count] = Structure.create_global_body_2_inter_list(real_atom_count,
+    body_2_arrays = [
+        global_body_2_inter_list,
+        global_body_2_inter_list_mask,
+        triple_bond_body_2_mask,
+        global_body_2_distances,
+        global_body_2_count
+    ] = Structure.create_global_body_2_inter_list(real_atom_count,
                             atom_types,atom_names,
                             atom_positions,orth_matrix,
                             local_body_2_neigh_counts,local_body_2_neigh_list,
                             force_field.bond_params_mask)
 
     #start = time.time()
+    # If need minimization, allow larger distance range.
     modified_dist = global_body_2_distances - BUFFER_DIST * do_minim
     modified_dist = onp.where(modified_dist < 1e-5, 1e-5,modified_dist)
 
     bo = calculate_bo(global_body_2_inter_list,
-                    global_body_2_inter_list_mask,
-                    modified_dist,
-                    flattened_force_field[8], flattened_force_field[9], flattened_force_field[10],
-                    flattened_force_field[11], flattened_force_field[12], flattened_force_field[13],
-                    flattened_force_field[14], flattened_force_field[15], flattened_force_field[16],
-                    force_field.cutoff)
+                      global_body_2_inter_list_mask,
+                      modified_dist,
+                      flattened_force_field[8], flattened_force_field[9], flattened_force_field[10],
+                      flattened_force_field[11], flattened_force_field[12], flattened_force_field[13],
+                      flattened_force_field[14], flattened_force_field[15], flattened_force_field[16],
+                      force_field.cutoff)  # shape=[num_bonds+1]
 
     bo = bo - force_field.cutoff
     bo = onp.where(bo > 0.0, bo, 0.0)
@@ -449,10 +511,12 @@ def create_inter_lists(is_periodic,
     #print("calculate_bo", end-start)
 
     #start = time.time()
-    body_3_arrays = [global_body_3_inter_list,
-     global_body_3_inter_list_mask,
-     global_body_3_inter_shift_map,
-     global_body_3_count] = Structure.create_body_3_inter_list(is_periodic,
+    body_3_arrays = [
+        global_body_3_inter_list,
+        global_body_3_inter_list_mask,
+        global_body_3_inter_shift_map,
+        global_body_3_count
+    ] = Structure.create_body_3_inter_list(is_periodic,
                             real_atom_count,atom_types,atom_names,atom_positions,orth_matrix,
                             local_body_2_neigh_counts,local_body_2_neigh_list,
                             global_body_2_inter_list,global_body_2_distances,bo,
@@ -573,6 +637,19 @@ def align_all_shift_combinations(systems, shift_combs):
     # distance matrices will be recreated in align_atom_counts_and_local_neigh
 
 def cluster_systems_for_aligning(systems,num_cuts=5,max_iterations=100,rep_count=20, print_mode=True):
+    '''Cluster systems into `num_cuts` pieces.
+
+    Args:
+    - systems: List of structures.
+    - num_cuts: Cluster count.
+    - max_iterations: Iteration count in K-Means.
+    - rep_count: Replay count of K-Means.
+    - print_mode: Whether print statistics.
+
+    Returns:
+    - all_cut_indices: 
+    - min_cost: Minimal calculation cost.
+    '''
     # from size arrays for clustering
 
     labels,min_centr,min_counts,min_cost = modified_kmeans(systems,k=num_cuts,max_iterations=max_iterations, rep_count=rep_count, print_mode=print_mode)
@@ -923,15 +1000,17 @@ def collect_data(systems):
         pickle.dump(data_list, f)
 
 def preprocess_trainset_line(line):
+    '''Replace '/' with ' / '.
+    '''
     # to make sure everything is nicely seperated by a space
     line = line.replace('/', ' / ')
     # it changes the weight as well, so removed
     #line = line.replace('+', ' + ')
     #line = line.replace('-', ' - ')
-
     return line
 
 def filter_geo_items(systems, trainset_items):
+    '''Filter geometries referred in training set.'''
     name_index_dict = dict()
     for i,s in enumerate(systems):
         name_index_dict[s.name] = i
@@ -954,6 +1033,12 @@ def filter_geo_items(systems, trainset_items):
     return final_systems
 
 def read_train_set(train_in):
+    '''Read training records & raw lines.
+
+    Returns:
+    - training_items: A dict of values of CHARGE, ENERGY, GEOMETRY, FORCES-2, FORCES-3, FORCES-4, FORCE-ATOM, FORCE-RMSG
+    - training_items_str: A dict of raw lines for each item in `training_items`.
+    '''
     f = open(train_in, 'r')
     training_items = {}
     training_items_str = {}
@@ -1649,7 +1734,12 @@ def parse_and_save_force_field(old_ff_file, new_ff_file,force_field):
 
 
 def parse_force_field(force_field_file, cutoff2):
+    '''Return a `ForceField` instance.
 
+    Parameters are defined at:
+    - https://www.scm.com/doc/ReaxFF/ffield_descrp.html
+    - https://www.scm.com/wp-content/uploads/ReaxFF-users-manual-2002.pdf
+    '''
 
     f = open(force_field_file, 'r')
     header = f.readline().strip()
@@ -1869,27 +1959,14 @@ def parse_force_field(force_field_file, cutoff2):
             force_field.bond_params_mask[i,j] = 1
             force_field.bond_params_mask[j,i] = 1
 
-
             force_field.de1[i,j] = float(split_line[2])
             force_field.de2[i,j] = float(split_line[3])
             force_field.de3[i,j] = float(split_line[4])
-            '''
-            force_field.de1[j,i] = float(split_line[2])
-            force_field.de2[j,i] = float(split_line[3])
-            force_field.de3[j,i] = float(split_line[4])
-            '''
             force_field.psi[i,j] = float(split_line[5])
             force_field.pdo[i,j] = float(split_line[6])
             force_field.v13cor[i,j] = float(split_line[7])
             force_field.popi[i,j] = float(split_line[8])
             force_field.vover[i,j] = float(split_line[9])
-            '''
-            force_field.psi[j,i] = float(split_line[5])
-            force_field.pdo[j,i] = float(split_line[6])
-            force_field.popi[j,i] = float(split_line[8])
-            force_field.vover[j,i] = float(split_line[9])
-            '''
-            force_field.v13cor[j,i] = float(split_line[7])
 
             force_field.params_to_indices[(3,b+1, 1)] = (17, (i, j))
             force_field.params_to_indices[(3,b+1, 2)] = (18, (i, j))
@@ -1910,15 +1987,6 @@ def parse_force_field(force_field_file, cutoff2):
             force_field.bop2[i,j] = float(split_line[5])
             force_field.ovc[i,j] = float(split_line[6])
             #force_field.vuncor[i,j] = float(split_line[7])
-            '''
-            force_field.psp[j,i] = float(split_line[0])
-            force_field.pdp[j,i] = float(split_line[1])
-            force_field.ptp[j,i] = float(split_line[2])
-            force_field.bop1[j,i] = float(split_line[4])
-            force_field.bop2[j,i] = float(split_line[5])
-            '''
-            force_field.ovc[j,i] = float(split_line[6])
-            #force_field.vuncor[j,i] = float(split_line[7])
 
             force_field.params_to_indices[(3,b+1, 9)] = (20, (i, j))
             force_field.params_to_indices[(3,b+1, 10)] = (12, (i, j))
@@ -2197,6 +2265,7 @@ def parse_force_field(force_field_file, cutoff2):
     return force_field
 
 def parse_geo_file(geo_file):
+    '''Return list of `Structure`.'''
     import copy
     if not os.path.exists(geo_file):
         print("Path {} does not exist!".format(geo_file))
@@ -2338,6 +2407,16 @@ def parse_geo_file(geo_file):
     return list_systems
 
 def parse_modified_params(params_file, ignore_sensitivity=1):
+    '''Read parameter file for `ForceField.params_to_indices`.
+    
+    A parameter file containing 6 columns:
+    - Section ID. General, Bond, Valence, etc.
+    - Target ID. H-O bond, H-O-H valence, etc.
+    - Property ID. Pi-bond dissociation energy, Pi-bond dissociation energy, etc.
+    - Sensitivity.
+    - Low end.
+    - High end.
+    '''
 
     # section indices sensitivity low_end high_end !comments
     if not os.path.exists(params_file):
@@ -2371,10 +2450,15 @@ def parse_modified_params(params_file, ignore_sensitivity=1):
     return params
 
 def map_params(params, index_map):
+    '''Based on `ForceField.params_to_indices`, replace IDs of section, target and property with indices in flattened parameter list.
+
+    Returns:
+    - new_params: list of tuple. Each tuple contains: parameter index, (sensitivity, low_end, high_end).
+    '''
     new_params = []
     for p in params:
         key = (p[0],p[1],p[2])
-        value = index_map[key]
-        new_item = (value, p[3],p[4],p[5])
+        value = index_map[key]  # parameter position & index
+        new_item = (value, p[3],p[4],p[5])  # sensitivity, low_end, high_end
         new_params.append(new_item)
     return new_params

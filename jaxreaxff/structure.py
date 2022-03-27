@@ -51,6 +51,7 @@ safe_sqrt.defjvp(safe_sqrt_jvp)
 def orthogonalization_matrix(box_lengths, angles_degr):
     # to calculate shifted box coord: mat.dot(shift_array)
     # source: reaxff frotran, subroutine vlist
+    # https://www.ucl.ac.uk/~rmhajc0/frorth.pdf
     a,b,c = box_lengths
     angles = onp.radians(angles_degr)
     sina, sinb, sing = onp.sin(angles)
@@ -91,8 +92,8 @@ def project_onto_orth_box(box_size,box_angles,positions):
 
 class Structure:
     def __init__(self,name, real_atom_count,positions,atom_types, atom_names,total_charge, is_periodic, do_minimization,num_min_steps, sim_box,box_angles, bond_restraints, angle_restraints, torsion_restraints):
-        self.name = name
-        self.atom_names = atom_names
+        self.name = name  # System name
+        self.atom_names = atom_names  # List of element names
         self.num_atoms = len(self.atom_names)
         self.real_atom_count = real_atom_count
         self.total_charge = total_charge
@@ -217,15 +218,30 @@ class Structure:
         return distance_matrices
 
     # the above functions are slow before aligning the systems, use these ones initially
+    @staticmethod
     def create_distance_matrices_single_onp(shift_pos,tiled_atom_pos1, orth_matrix):
+        '''Calculate distance matrix between the given atom and others.
 
-        tiled_atom_pos1_trans = tiled_atom_pos1.swapaxes(0,1)
+        Args:
+        - shift_pos: Shape is [3]. It decides which mirror to use in periodic boundary condition.
+        - tiled_atom_pos1: Shape is [num_atoms, num_atoms, 3]. Each slice of the first dimension is duplicated atom coordinate.
+
+        Returns:
+        - distance_matrix: Shape is [num_atoms, num_atoms, 3].
+        '''
+        tiled_atom_pos1_trans = tiled_atom_pos1.swapaxes(0,1)  # Each slice of the first dimension is a copy of all atom coordinates.
         shifted_tiled_atom_pos1_trans = tiled_atom_pos1_trans + shift_pos
         diff = tiled_atom_pos1 - shifted_tiled_atom_pos1_trans
         distance_matrix = onp.sqrt(onp.square(diff).sum(axis=2))
         return distance_matrix
 
+    @staticmethod
     def create_distance_matrices_onp(atom_positions, orth_matrix, all_shift_comb):
+        '''Create distance matrix between atoms and their mirrors.
+
+        Returns:
+        - distance_matrixs: Shape is [num_grids, num_atoms, num_atoms, 3].
+        '''
         num_atoms = len(atom_positions)
         atom_pos = atom_positions.reshape((num_atoms,1,3))
         shift_pos = onp.dot(orth_matrix,all_shift_comb.transpose()).transpose() #np.dot(orth_matrix,shift)
@@ -237,10 +253,19 @@ class Structure:
 
 
     def create_local_neigh_list(num_atoms,real_atom_count,atom_types,distance_matrices,all_shift_comb,cutoff_dict,do_minim):
+        '''Create neighbor lists of all atoms within element-pairwise cutoff.
+
+        Returns:
+        - local_body_2_neigh_list: 2D array with shape [num_atoms, max_neighbor_count, 5]. Content of each neighbor are:
+          - neighbor atom id. Padded one is `-1`.
+          - bond ID. Padded one is `-1`.
+          - mirror offset in X axis.
+          - mirror offset in Y axis.
+          - mirror offset in Z axis.
+        - local_body_2_neigh_counts: 2D array with shape [num_atoms]
         '''
-        NOTES from the fortran code:
-        self indices are located at the end of the global verlet list so that they can be ignored for some calculations (why??)
-        '''
+        # NOTES from the fortran code:
+        # self indices are located at the end of the global verlet list so that they can be ignored for some calculations (why??)
         local_body_2_neigh_list = [[] for _ in range(num_atoms)]
 
         local_body_2_neigh_counts = [0] * num_atoms
@@ -268,15 +293,13 @@ class Structure:
                             local_body_2_neigh_list[j].append((i,-1,-kx,-ky,-kz))
                             local_body_2_neigh_counts[j] += 1
 
-
-
         # equalize the sizes
         max_count = max(local_body_2_neigh_counts)
         min_count = min(local_body_2_neigh_counts)
         # to not have empty lists
         if max_count == 0:
             max_count = 1
-        filler_list = [(-1,-1,0,0,0)] * (max_count - min_count)
+        filler_list = [(-1,-1,0,0,0)] * (max_count - min_count)  # Paddings
 
         for i in range(num_atoms):
             diff = max_count - local_body_2_neigh_counts[i]
@@ -287,18 +310,20 @@ class Structure:
 
         return local_body_2_neigh_list,local_body_2_neigh_counts
 
-
+    @staticmethod
     def body_2_check(type1, type2, bond_params_mask):
+        '''Return whether the element-pairwise bond is defined.'''
         # make sure the param. exists
         if bond_params_mask[type1,type2] == 0 and bond_params_mask[type2,type1] == 0:
             return False
         return True
 
+    @staticmethod
     def find_and_update_inter_id(local_body_2_neigh_list,local_body_2_neigh_counts,src,dst,shift1,inter_id):
+        '''Atom pairs share the same bond ID in neighbor list.
         '''
-        Find and update interaction id if dst is in the neigh. list of src
-        make sure both atoms are real
-        '''
+        # Find and update interaction id if dst is in the neigh. list of src
+        # make sure both atoms are real
         for neigh in range(local_body_2_neigh_counts[src]):
             ind = int(local_body_2_neigh_list[src][neigh][0])
             shift2 = local_body_2_neigh_list[src][neigh][2:5]
@@ -310,7 +335,13 @@ class Structure:
                     local_body_2_neigh_list[src][neigh][1] = inter_id
                     return
 
+    @staticmethod
     def calculate_2_body_distances_onp(atom_positions,orth_matrix, global_body_2_inter_list,global_body_2_inter_list_mask):
+        '''Calculate bond length.
+
+        Returns:
+        distances: Shape is [num_bonds+1]. The last element is padded with a very large value `15.`.
+        '''
         # updated to support not orth. boxes
         shift = orth_matrix.dot(global_body_2_inter_list[:,4:7].transpose()).transpose()
         pos1 = atom_positions[global_body_2_inter_list[:,0]]
@@ -321,9 +352,11 @@ class Structure:
         #global_body_2_inter_list[:,0] = distances
         return distances
 
+    @staticmethod
     def calculate_2_body_distance(pos1, pos2):
         return safe_sqrt(np.sum(np.power((pos1 - pos2),2)))
 
+    @staticmethod
     def calculate_2_body_distances(atom_positions,orth_matrix, global_body_2_inter_list,global_body_2_inter_list_mask):
         # updated to support not orth. boxes
         shift = orth_matrix.dot(global_body_2_inter_list[:,4:7].transpose()).transpose()
@@ -334,9 +367,26 @@ class Structure:
 
         #global_body_2_inter_list[:,0] = distances
         return distances
-    # use the force field to check if params exist for a given interaction
-    # if not, dont add it to the list
+
     def create_global_body_2_inter_list(real_atom_count,atom_types,atom_names,atom_positions,orth_matrix,local_body_2_neigh_counts,local_body_2_neigh_list, bond_params_mask):
+        '''Create 2-body inter list.
+
+        Returns:
+        - global_body_2_inter_list: Shape is [num_bonds+1, 7]. The last element is splitter. Values of the secend dimension are:
+          - source atom id.
+          - source element id.
+          - destination atom id.
+          - destination element id.
+          - mirror offset in X aixs.
+          - mirror offset in Y aixs.
+          - mirror offset in Z aixs.
+        - global_body_2_inter_list_mask: Shape is [num_bonds+1]. The last element is splitter. All elements are 1.
+        - triple_bond_body_2_mask: Shape is [num_bonds+1]. The last element is splitter. It tells whether the bond is C-O.
+        - global_body_2_distances: Shape is [num_bonds+1]. The last element is splitter.
+        - global_body_2_count: Value is `num_bounds+1`.
+        '''
+        # use the force field to check if params exist for a given interaction
+        # if not, dont add it to the list
         inter_ctr = 0
         temp_global_body_2_inter_list = []
         temp_triple_bond_body_2_mask = []
@@ -404,7 +454,8 @@ class Structure:
         triple_bond_body_2_mask = onp.array(temp_triple_bond_body_2_mask)
 
         global_body_2_distances = Structure.calculate_2_body_distances_onp(atom_positions,orth_matrix,
-                                                                                     global_body_2_inter_list,global_body_2_inter_list_mask)
+                                                                           global_body_2_inter_list,
+                                                                           global_body_2_inter_list_mask)
 
         #self.global_body_2_inter_list[self.global_body_2_count:,0] = 9999
         #self.global_body_2_inter_list[self.global_body_2_count:,[1,2,3,4]] = -1
@@ -413,7 +464,7 @@ class Structure:
 
 
     def body_3_check(angle, type1, type2, type3,valency_params_mask):
-
+        '''Return whether the valence angle is defined.'''
         if valency_params_mask[type1,type2,type3] == 0 and valency_params_mask[type3,type2,type1] == 0:
             return False
 
@@ -445,13 +496,25 @@ class Structure:
         cos_angle = vectorized_cond(np.logical_or(dot_prod >= 1.0, dot_prod < -1.0), lambda x: 0., lambda x: np.arccos(x), dot_prod)
         return cos_angle
 
-
+    @staticmethod
     def create_body_3_inter_list(is_periodic,real_atom_count,atom_types,atom_names,atom_positions,orth_matrix,
                               local_body_2_neigh_counts,local_body_2_neigh_list,
                               global_body_2_inter_list,global_body_2_distances,bo,
                               valency_params_mask,
                               cutoff2):
+        '''Create 3-body inter list for valence angles.
 
+        Returns:
+        - global_body_3_inter_list: Shape is [num_valence+1,5]. The last element is splitter. Values of the secend dimension are:
+          - Vertex atom ID.
+          - Center atom ID.
+          - Vertex atom ID.
+          - Bond ID between vertex and center.
+          - Bond ID between center and vertex.
+        - global_body_3_inter_list_mask: Shape is [num_valence+1]. The last element is splitter. All elements are 1.
+        - global_body_3_inter_shift_map: Shape is [num_valence+1,2]. The last element is splitter.
+        - global_body_3_count: Value is `num_valence+1`.
+        '''
         bo_new = bo - cutoff2
         bo_new = onp.where(bo_new > 0.0, bo_new, 0.0)
         #TODO: later seperate angle calculation and counting
@@ -571,10 +634,19 @@ class Structure:
 
         return True
 
+    @staticmethod
     def create_body_4_inter_list_fast(is_periodic,real_atom_count,atom_types,atom_names,atom_positions,orth_matrix,
                                    local_body_2_neigh_counts,local_body_2_neigh_list,
                                    global_body_2_inter_list,global_body_2_distances,bo,global_body_2_count,
                                    torsion_params_mask,cutoff2):
+        '''Create 4-body torsion inter list.
+
+        Returns:
+        - global_body_4_inter_list: Shape is [num_torsion+1, 7].
+        - global_body_4_inter_shift: Shape is [num_torsion+1, 12].
+        - global_body_4_inter_list_mask: Shape is [num_torsion+1].
+        - global_body_4_count: Value is `num_torsion+1`.
+        '''
         inter_ctr = 0
         temp_global_body_4_inter_list = []
         temp_global_body_4_inter_shift = []
@@ -790,6 +862,14 @@ class Structure:
                                    local_body_2_neigh_counts,local_body_2_neigh_list,
                                    global_body_2_inter_list,global_body_2_distances,global_body_2_count,
                                    ff_nphb,hbond_params_mask):
+        '''Create H-bond inter list.
+
+        Returns:
+        - global_hbond_inter_list: Shape is [num_hbond+1,7].
+        - global_hbond_shift_list: Shape is [num_hbond+1,6].
+        - global_hbond_inter_list_mask: Shape is [num_hbond+1].
+        - global_hbond_count: Value is `num_hbond+1`.
+        '''
         global_hbond_inter_list = []
         global_hbond_shift_list = []
         global_hbond_count = 0
@@ -880,6 +960,7 @@ class Structure:
 
 
     def fill_atom_types(self, force_field):
+        '''Translate atom elements to type IDs defined in force field.'''
         num_atoms = self.num_atoms
 
         for i in range(num_atoms):
@@ -891,7 +972,18 @@ class Structure:
 
 
     # to use to gemerate inter lists
-    def flatten_no_inter_list(self):
+    def flatten_no_inter_list(self) -> tuple:
+        '''Generate metadata of the structure containing:
+        - is_periodic: Periodic condition boundary or not.
+        - do_minimization: Whether need minimization.
+        - num_atoms: Total element count.
+        - real_atom_count: Used element count.
+        - atom_types Element IDs of each atom.
+        - atom_names: Element names of each atom.
+        - atom_positions: Catesian coordinates per atom.
+        - orth_matrix: Axis vectors of X, Y, Z in Catesian coordinates.
+        - all_shift_comb: Grids of unit cells within the cutoff.
+        '''
         return (self.is_periodic,
              self.do_minimization,
              self.num_atoms,

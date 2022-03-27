@@ -1096,11 +1096,11 @@ def calculate_bo_single(distance,
 
 def calculate_bo(body_2_global_list, body_2_global_list_mask,
                  distances,
-                rob1, rob2, rob3,
-                ptp, pdp, popi, pdo, bop1, bop2,
-                cutoff):
-    '''
-    to get the highest bor:
+                 rob1, rob2, rob3,
+                 ptp, pdp, popi, pdo, bop1, bop2,
+                 cutoff):
+    ''' Calculate bond order for each atom.
+    To get the highest bor:
         rob1:
         bop2: group 2, line 2, col. 6
         bop1: group 2, line 2, col. 5
@@ -1112,9 +1112,24 @@ def calculate_bo(body_2_global_list, body_2_global_list_mask,
         rob3:
         popi: group 2, line 1, col. 7
         pdo: group 2, line 1, col. 5
+
+    Args:
+    - body_2_global_list: Shape is [num_bonds+1, 7]. The last element is splitter. Values of the secend dimension are:
+      - source atom id.
+      - source element id.
+      - destination atom id.
+      - destination element id.
+      - mirror offset in X aixs.
+      - mirror offset in Y aixs.
+      - mirror offset in Z aixs.
+    - body_2_global_list_mask: Shape is [num_bonds+1]. The last element is splitter. All elements are 1.
+    - distances: Shape is [num_bonds+1]. The last element is splitter.
+
+    Returns:
+    - bond_order: Shape is [num_bonds+1].
     '''
-    type_indices = body_2_global_list[:,[1,3]]
-    type_indices = type_indices.transpose()
+    type_indices = body_2_global_list[:,[1,3]]  # Elements of source & destination. shape=[num_bonds+1, 2]
+    type_indices = type_indices.transpose()  # shape=[2, num_bonds+1]
 
     my_rob1 = rob1[type_indices[0], type_indices[1]]
     my_rob2 = rob2[type_indices[0], type_indices[1]]

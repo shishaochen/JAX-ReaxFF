@@ -64,32 +64,32 @@ class ForceField:
     def __init__(self, total_num_atom_types=MAX_NUM_ATOM_TYPES, cutoff2 = 0.001):
         self.total_num_atom_types = total_num_atom_types
         self.name_2_index = dict()
-        self.params_to_indices = dict()
+        self.params_to_indices = dict()  # key 是三元组，第几组参数、第几个标的/行、第几个属性/列；value 是二元组，在 flattened_force_field 中序位号、参数数组中索引
 
         # charge solver and coulomb pot. related parameters
-        self.electronegativity = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE) #elc
-        self.idempotential = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE) #eta
-        self.gamma = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.electronegativity = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE) #elc EEM electronegativity
+        self.idempotential = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE) #eta EEM hardness
+        self.gamma = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # EEM 壳层，原子静电交互的阻尼常数
 
         # vdw related parameters
-        self.rvdw = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.rvdw = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # 范德华半径
         self.p1co = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.p1co_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.p1co_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # VdW radius
         self.p1co_off_mask = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=onp.bool)
 
-        self.eps = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.eps = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # 范德华解离能
         self.p2co = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.p2co_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.p2co_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # VdW energy
         self.p2co_off_mask = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=onp.bool)
 
-        self.alf = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.alf = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # 范德华力参数
         self.p3co = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.p3co_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.p3co_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # VdW parameter
         self.p3co_off_mask = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=onp.bool)
 
-        self.vop = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.vop = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # 范德华力壳层，分子间作用力的阻尼常数
 
-        self.amas = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.amas = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # 相对原子质量
 
         self.vdw_shiedling = 0.0 #vpar(29)
 
@@ -98,47 +98,47 @@ class ForceField:
         self.up_tap_rad = 10.0
 
         # bond energy related parameters
-        self.rat = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.rat = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # \sigma 键共价半径
         self.rob1 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.rob1_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.rob1_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # \sigma 键键长
         self.rob1_off_mask = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=onp.bool)
 
-        self.rapt = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.rapt = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # \pi 键共价半径
         self.rob2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.rob2_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.rob2_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # \pi 键键长
         self.rob2_off_mask = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=onp.bool)
 
-        self.vnq = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.vnq = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # 双 \pi 键共价半径
         self.rob3 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.rob3_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.rob3_off = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # 双 \pi 键键长
         self.rob3_off_mask = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=onp.bool)
 
-        self.ptp = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.pdp = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.popi = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.pdo = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.bop1 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.bop2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.ptp = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # \pi 键参数指数项
+        self.pdp = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # \pi 键参数系数项
+        self.popi = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # 双 \pi 键参数指数项
+        self.pdo = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # 双 \pi 键参数系数项
+        self.bop1 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # \sigma 键参数系数项
+        self.bop2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # \sigma 键参数指数项
 
-        self.de1 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.de2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.de3 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.psp = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.psi = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.de1 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # \sigma 键解离能
+        self.de2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # \pi 键解离能
+        self.de3 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # 双 \pi 键解离能
+        self.psp = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # 键能参数 pbe2
+        self.psi = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # 键能参数 pbe1
 
-        self.cutoff = 0
+        self.cutoff = 0  # Cutoff for bond order (* 100)
 
-        self.trip_stab4 = 0
-        self.trip_stab5 = 0
-        self.trip_stab8 = 0
-        self.trip_stab11 = 0 # stab. energy
+        self.trip_stab4 = 0  # Triple bond stabilization parameter
+        self.trip_stab5 = 0  # Triple bond stabilization parameter
+        self.trip_stab8 = 0  # Triple bond stabilization parameter
+        self.trip_stab11 = 0 # stab. energy  # Triple bond stabilization parameter
 
 
-        self.aval = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.aval = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # 价电子数
         self.vval3 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
-        self.bo131 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
-        self.bo132 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
-        self.bo133 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.bo131 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # Bond order correction, p_boc4
+        self.bo132 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # Bond order correction, p_boc3
+        self.bo133 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # Bond order correction, p_boc5
         self.ovc = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
         self.v13cor = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
 
@@ -154,32 +154,31 @@ class ForceField:
         # valency related parameters
         self.cutoff2 = cutoff2
         # from control, BO-cutoff for valency angles and torsion angles
-        self.val_par3 = 0.0
-        self.val_par15 = 0.0
-        self.val_par17 = 0.0
-        self.val_par18 = 0.0
-        self.val_par20 = 0.0
-        self.val_par21 = 0.0
-        self.val_par22 = 0.0
-        self.val_par31 = 0.0
-        self.val_par34 = 0.0
-        self.val_par39 = 0.0
+        self.val_par3 = 0.0  # Valency angle conjugation parameter
+        self.val_par15 = 0.0  # Valency undercoordination
+        self.val_par17 = 0.0  # Valency angle parameter
+        self.val_par18 = 0.0  # Valency angle parameter
+        self.val_par20 = 0.0  # Double bond/angle parameter
+        self.val_par21 = 0.0  # Double bond/angle parameter: overcoord
+        self.val_par22 = 0.0  # Double bond/angle parameter: overcoord
+        self.val_par31 = 0.0  # Valency angle conjugation parameter
+        self.val_par34 = 0.0  # Valency/lone pair parameter
+        self.val_par39 = 0.0  # Valency angle conjugation parameter
 
 
-        self.stlp = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
-        self.valf = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
-        self.vval1 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
-        self.vval2 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
-        self.vval3 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
-        self.vval4 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.stlp = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # 价电子数
+        self.valf = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # Valency for 1,3-BO correction
+        self.vval1 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # Valence angle parameter
+        self.vval3 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # Number of lone pairs
+        self.vval4 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # Valence angle parameter
 
-        self.vkac = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.th0 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.vka = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.vkap = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.vka3 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.vka8 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.vval2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.vkac = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Undercoordination
+        self.th0 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # 180o-(equilibrium angle)
+        self.vka = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Valence angle parameter
+        self.vkap = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Penalty energy
+        self.vka3 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Valence angle parameter
+        self.vka8 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Valence conjugation
+        self.vval2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Valence angle parameter
 
 
 
@@ -195,9 +194,9 @@ class ForceField:
 
         # over-under coordination
         self.valp1 = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
-        self.vovun = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)
+        self.vovun = onp.zeros(shape=(self.total_num_atom_types), dtype=TYPE)  # Valence angle parameter
 
-        self.vover = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.vover = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Overcoordination penalty
 
         self.par_6 = 0.0
         self.par_7 = 0.0
@@ -209,24 +208,24 @@ class ForceField:
 
         self.torsion_params_mask = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=onp.int32)
         # torsion angle params
-        self.v1 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.v2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.v3 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.v4 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.vconj = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.v1 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # V1-torsion barrier
+        self.v2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # V2-torsion barrier
+        self.v3 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # V3-torsion barrier
+        self.v4 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Torsion angle parameter
+        self.vconj = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Conjugation energy
 
-        self.par_24 = 0.0
-        self.par_25 = 0.0
-        self.par_26 = 0.0
-        self.par_28 = 0.0
+        self.par_24 = 0.0  # Torsion/BO parameter
+        self.par_25 = 0.0  # Torsion overcoordination
+        self.par_26 = 0.0  # Torsion overcoordination
+        self.par_28 = 0.0  # Conjugation
 
 
         # h-bond parameters
-        self.nphb = onp.zeros(shape=(self.total_num_atom_types), dtype=onp.int32)
-        self.rhb = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.dehb = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.vhb1 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
-        self.vhb2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)
+        self.nphb = onp.zeros(shape=(self.total_num_atom_types), dtype=onp.int32)  # Donor or acceptor switch in H-bonds
+        self.rhb = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Hydrogen bond equilibrium distance
+        self.dehb = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Hydrogen bond energy
+        self.vhb1 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Hydrogen bond/bond order
+        self.vhb2 = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=TYPE)  # Hydrogen bond parameter
         self.hbond_params_mask = onp.zeros(shape=(self.total_num_atom_types,self.total_num_atom_types,self.total_num_atom_types), dtype=onp.int32)
 
         # these will be part of non_dif and their type will be onp.array or np.array
@@ -239,6 +238,10 @@ class ForceField:
         self.flattened_force_field = []
 
     def init_params_for_filler_atom_type(self):
+        '''For each atomic parameter, assign default value `1` to the last element which should be unused.
+
+        Atomic parameters are: rat, rapt, vnq, rvdw, eps, alf, vop, gamma, electronegativity, idempotential, bo131, bo132, bo133.
+        '''
         #TODO: make sure that index -1 doesnt belong to a real atom!!!
         self.rat[-1]  = 1
         self.rapt[-1] = 1
@@ -279,6 +282,10 @@ class ForceField:
         self.vdw_shiedling = self.vdw_shiedling + random_val
 
     def flatten(self):
+        '''Flatten force field paramters to a list which is stored as:
+        - Trainable: `self.flattened_force_field`.
+        - Non-trainable: `self.non_dif_params`.
+        '''
         # total size 2 from tapering + gamma + idempotential + electronegativity
         self.flattened_force_field = [self.gamma,
                                       self.idempotential,
@@ -521,6 +528,7 @@ class ForceField:
 
 
     def flatten_non_dif_params(self):
+        '''Flatten non-differentiable parameters.'''
         rob1_mask = np.where(self.rob1 > 0.0, 1.0, 0.0)
         rob1_mask = rob1_mask + np.triu(rob1_mask, k=1).transpose()
         rob2_mask = np.where(self.rob2 > 0.0, 1.0, 0.0)
@@ -570,63 +578,58 @@ class ForceField:
             self.flattened_force_field = pickle.load(input_file)
 
 def symm_force_field(flattened_force_field,flattened_non_dif_params):
+    '''Apply symmetric settings for bond, angle, torsion parameters.'''
     # 2 body-params
     # for now global
-    body_2_indices = np.tril_indices(len(flattened_force_field[0]),k=-1)
+    body_2_indices = np.tril_indices(len(flattened_force_field[0]),k=-1)  # 宽度为 TOTAL_ATOM_TYPES 的方阵的下三角（不含对角线）切片
     body_3_indices_src = flattened_non_dif_params[19]
     body_3_indices_dst = flattened_non_dif_params[20]
     body_4_indices_src = flattened_non_dif_params[21]
     body_4_indices_dst = flattened_non_dif_params[22]
+
     #off diag. ones
-    for i in range(3, 6):
+    for i in range(3, 6):  # p1co, p2co, p3co
         flattened_force_field[i] = jax.ops.index_update(flattened_force_field[i],
                     body_2_indices, flattened_force_field[i].transpose()[body_2_indices])
 
-    for i in range(81, 87):
+    for i in range(81, 87):  # rob1_off, rob2_off, rob3_off, p1co_off, p2co_off, p3co_off
         flattened_force_field[i] = jax.ops.index_update(flattened_force_field[i],
                     body_2_indices, flattened_force_field[i].transpose()[body_2_indices])
 
-    for i in range(8, 22):
+    for i in range(8, 22):  # rob1, rob2, rob3, ptp, pdp, popi, pdo, bop1, bop2, de1, de2, de3, psp, psi
         flattened_force_field[i] = jax.ops.index_update(flattened_force_field[i],
                     body_2_indices, flattened_force_field[i].transpose()[body_2_indices])
 
-    flattened_force_field[57] = jax.ops.index_update(flattened_force_field[57],  #vover
+    flattened_force_field[57] = jax.ops.index_update(flattened_force_field[57],  # vover
                 body_2_indices, flattened_force_field[57].transpose()[body_2_indices])
 
     # 3-body parameters
-    flattened_force_field[36] = jax.ops.index_update(flattened_force_field[36],
+    flattened_force_field[36] = jax.ops.index_update(flattened_force_field[36],  # vval2
                                 body_3_indices_dst, flattened_force_field[36][body_3_indices_src])
 
-
-    for i in range(38, 44):
+    for i in range(38, 44):  # vkac, th0, vka, vkap, vka3, vka8
         flattened_force_field[i] = jax.ops.index_update(flattened_force_field[i],
                                     body_3_indices_dst, flattened_force_field[i][body_3_indices_src])
     #4-body params
-    for i in range(66, 71):
+    for i in range(66, 71):  # v1, v2, v3, v4, vconj
         flattened_force_field[i] = jax.ops.index_update(flattened_force_field[i],
                                     body_4_indices_dst, flattened_force_field[i][body_4_indices_src])
 
-    return     flattened_force_field
+    return flattened_force_field
 
 def handle_offdiag(flattened_force_field,flattened_non_dif_params):
+    '''Overwrite pairwise parameters using off-diagonal parameters.
     '''
-                          self.p1co_off_mask, #12
-                              self.p2co_off_mask,
-                              self.p3co_off_mask,
+    num_rows = flattened_force_field[75].shape[0]  # total_num_atom_types
 
-                              self.rob1_off_mask,#15
-                              self.rob2_off_mask,
-                              self.rob3_off_mask
-    '''
-    num_rows = flattened_force_field[75].shape[0]
+    mat1 = flattened_force_field[75].reshape(1,-1)  # \sigma valence radius. shape=[1, total_num_atom_types]
+    mat1 = np.tile(mat1,(num_rows,1))  # Each element in a column is the same. shape=[total_num_atom_types, total_num_atom_types]
+    mat1_tr = mat1.transpose()  # Each element in a row is the same. shape=[total_num_atom_types, total_num_atom_types]
+    rob1_temp = (mat1 + mat1_tr) * 0.5  # \sigma valence length per element pair. shape=[total_num_atom_types, total_num_atom_types]
+    rob1_temp = np.where(mat1 > 0.0, rob1_temp, 0.0)  # padding 的元素对应的一列（无效的 pair）都设为 0
+    rob1_temp = np.where(mat1_tr > 0.0, rob1_temp, 0.0)  # padding 的元素对应的一行（无效的 pair）都设为 0
 
-    mat1 = flattened_force_field[75].reshape(1,-1)
-    mat1 = np.tile(mat1,(num_rows,1))
-    mat1_tr = mat1.transpose()
-    rob1_temp = (mat1 + mat1_tr) * 0.5
-    rob1_temp = np.where(mat1 > 0.0, rob1_temp, 0.0)
-    rob1_temp = np.where(mat1_tr > 0.0, rob1_temp, 0.0)
-
+    # Handling of \pi valence is the same as that of \sigma valence
     mat1 = flattened_force_field[76].reshape(1,-1)
     mat1 = np.tile(mat1,(num_rows,1))
     mat1_tr = mat1.transpose()
@@ -634,38 +637,52 @@ def handle_offdiag(flattened_force_field,flattened_non_dif_params):
     rob2_temp = np.where(mat1 > 0.0, rob2_temp, 0.0)
     rob2_temp = np.where(mat1_tr > 0.0, rob2_temp, 0.0)
 
+    # Handling of double \pi valence is the same as that of \sigma valence
     mat1 = flattened_force_field[77].reshape(1,-1)
     mat1 = np.tile(mat1,(num_rows,1))
     mat1_tr = mat1.transpose()
     rob3_temp = (mat1 + mat1_tr) * 0.5
     rob3_temp = np.where(mat1 > 0.0, rob3_temp, 0.0)
     rob3_temp = np.where(mat1_tr > 0.0, rob3_temp, 0.0)
+
     #TODO: gradient of sqrt. at 0 is nan, use safe sqrt
-    p1co_temp = safe_sqrt(4.0 * flattened_force_field[78].reshape(-1,1).dot(flattened_force_field[78].reshape(1,-1)))
-    p2co_temp = safe_sqrt(flattened_force_field[79].reshape(-1,1).dot(flattened_force_field[79].reshape(1,-1)))
-    p3co_temp = safe_sqrt(flattened_force_field[80].reshape(-1,1).dot(flattened_force_field[80].reshape(1,-1)))
+    p1co_temp = safe_sqrt(4.0 * flattened_force_field[78].reshape(-1,1).dot(flattened_force_field[78].reshape(1,-1)))  # 逐 pair 消费范德华半径
+    p2co_temp = safe_sqrt(flattened_force_field[79].reshape(-1,1).dot(flattened_force_field[79].reshape(1,-1)))  # 逐 pair 消费范德华解离能
+    p3co_temp = safe_sqrt(flattened_force_field[80].reshape(-1,1).dot(flattened_force_field[80].reshape(1,-1)))  # 逐 pair 消费范德华力参数
 
+    # Valence lengths of \sigma, \pi, double \pi between elements overwriten by non-diagonal parameters
+    flattened_force_field[8] = np.where(flattened_non_dif_params[15] == 0, rob1_temp, flattened_force_field[81])  # rob1
+    flattened_force_field[9] = np.where(flattened_non_dif_params[16] == 0, rob2_temp, flattened_force_field[82])  # rob2
+    flattened_force_field[10] = np.where(flattened_non_dif_params[17] == 0, rob3_temp, flattened_force_field[83])  # rob3
 
-    flattened_force_field[8] = np.where(flattened_non_dif_params[15] == 0, rob1_temp, flattened_force_field[81])
-    flattened_force_field[9] = np.where(flattened_non_dif_params[16] == 0, rob2_temp, flattened_force_field[82])
-    flattened_force_field[10] = np.where(flattened_non_dif_params[17] == 0, rob3_temp, flattened_force_field[83])
-
-    flattened_force_field[3] = np.where(flattened_non_dif_params[12] == 0, p1co_temp, flattened_force_field[84] * 2.0)
-    flattened_force_field[4] = np.where(flattened_non_dif_params[13] == 0, p2co_temp, flattened_force_field[85])
-    flattened_force_field[5] = np.where(flattened_non_dif_params[14] == 0, p3co_temp, flattened_force_field[86])
+    # Length, dissociation energy, parameter of van der Waals between elements overwriten by off-diagonal parameters
+    flattened_force_field[3] = np.where(flattened_non_dif_params[12] == 0, p1co_temp, flattened_force_field[84] * 2.0)  # p1co
+    flattened_force_field[4] = np.where(flattened_non_dif_params[13] == 0, p2co_temp, flattened_force_field[85])  # p2co
+    flattened_force_field[5] = np.where(flattened_non_dif_params[14] == 0, p3co_temp, flattened_force_field[86])  # p3co
 
     return flattened_force_field
 
 def preprocess_force_field(flattened_force_field, flattened_non_dif_params):
+    '''Steps of preprocessing are listed as below:
+    1. Overwrite pairwise parameters using off-diagonal parameters.
+    2. Apply symmetric settings for bond, angle, torsion parameters.
+    '''
     return symm_force_field(handle_offdiag(flattened_force_field,flattened_non_dif_params),flattened_non_dif_params)
 
 def generate_random_value(low_limit, high_limit):
+    '''Generate an number between `low_limit` and `high_limit` using uniform distribution.
+    '''
     diff = high_limit - low_limit
     return onp.random.random() * diff + low_limit
 
 def random_init_force_field(flattened_force_field, params):
-    for i,p in enumerate(params):
+    '''Initialize parameters in the given range using uniform distribution.
+    '''
+    for p in params:
         ind = p[0]
-        flattened_force_field[ind[0]] = jax.ops.index_update(flattened_force_field[ind[0]], ind[1], generate_random_value(p[2],p[3]))
+        index = ind[0]
+        slice = ind[1]
+        value = generate_random_value(p[2],p[3])
+        flattened_force_field[index] = jax.ops.index_update(flattened_force_field[index], slice, value)
         #flattened_force_field[ind][param_indices] = generate_random_value(p[2],p[3])
 
